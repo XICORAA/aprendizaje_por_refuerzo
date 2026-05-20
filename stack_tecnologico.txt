@@ -1,0 +1,16 @@
+8. Especificaciones de tecnologías y herramientas utilizadas
+
+Herramienta: Python
+Uso y Justificación Técnica: Lenguaje de programación principal debido a su ecosistema robusto y soporte nativo para librerías de Inteligencia Artificial y computación científica.
+
+Herramienta: Gymnasium
+Uso y Justificación Técnica: Librería estándar para el diseño y desarrollo de entornos de Aprendizaje por Refuerzo. Permitirá estructurar el espacio de estados (texto acumulado), el espacio de acciones (selección de tokens) y la interfaz de recompensas.
+
+Herramienta: PyTorch
+Uso y Justificación Técnica: Framework de aprendizaje profundo utilizado para la construcción y computación tensorial de la Red de la Política (Policy Network), modelando la arquitectura secuencial para la generación de texto.
+
+Herramienta: Stable-Baselines3
+Uso y Justificación Técnica: Contenedor de algoritmos de Aprendizaje por Refuerzo optimizados. Se utilizará específicamente el algoritmo PPO (Proximal Policy Optimization) para ajustar los pesos de la red según el feedback recibido.
+
+Herramienta: Streamlit
+Uso y Justificación Técnica: Framework ágil en Python empleado para desplegar la interfaz gráfica de la versión beta, facilitando la interacción del usuario y la captura de calificaciones en tiempo real.

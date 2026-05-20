@@ -1,0 +1,37 @@
+A continuación, te presento el Flujo de Ingeniería que explica cómo se conectan los componentes y, justo después, el Súper Prompt diseñado específicamente para que puedas introducirlo en un asistente de código (como VSCodium con alguna extensión de IA o el modelo de desarrollo que utilices) para generar el andamiaje (boilerplate) inicial del código.
+El Flujo Técnico del Prototipo Beta
+
+Para que la versión beta funcione, el ciclo de datos debe operar bajo el siguiente flujo cerrado de RLHF:Captura (Streamlit): El usuario ingresa la consigna y ajusta la temperatura en la UI.Inicialización (Gymnasium): Los parámetros del usuario configuran el Estado Inicial del entorno de simulación lingüística.Generación Secuencial (PyTorch + PPO): La red neuronal (política) predice e inserta palabra por palabra dentro del entorno de Gymnasium, aplicando el muestreo probabilístico controlado por la temperatura.Despliegue y Evaluación (Streamlit): El texto completo se renderiza en la web. El usuario interactúa con los botones de feedback dando una recompensa ($+1$ o $-1$).Persistencia (JSON): Se guarda el par [Estado, Acción, Recompensa] en el archivo local.Optimización (Stable-Baselines3): El algoritmo PPO toma los logs guardados para ejecutar un paso de entrenamiento (model.learn()), ajustando los pesos de la red de PyTorch para que en la próxima generación prefiera estructuras gramaticales similares a las aprobadas por el usuario.
+
+Súper Prompt para la Construcción de la Versión Beta
+Puedes copiar y pegar textualmente el siguiente bloque en tu herramienta de IA de desarrollo para obtener el código base estructurado de tu proyecto:
+
+Actúa como un Ingeniero de Software experto en Inteligencia Artificial y Aprendizaje por Refuerzo. Necesito construir un prototipo funcional en un solo archivo Python (app.py) para un Asistente de Escritura Creativa utilizando RLHF desde cero. No puedo usar APIs externas ni modelos preentrenados locales (como Ollama/HuggingFace). Debemos construir la lógica del entorno y el agente nosotros mismos.
+
+El stack tecnológico obligatorio es: Python 3, Streamlit (para la UI), Gymnasium (para el entorno de RL), PyTorch (para la red de la política interna), Stable-Baselines3 (para el algoritmo PPO) y la librería nativa json para persistencia.
+
+Por favor, escribe el código completo e implementa detalladamente los siguientes 4 módulos dentro del mismo script:
+
+1. MÓDULO DE ENTRADA Y PARAMETRIZACIÓN (Streamlit UI):
+   - Diseña una barra lateral (sidebar) que capture: un área de texto para la "Consigna", un selector (selectbox) para el Género (Cuento, Poema, Guion), un selector para el Tono (Misterioso, Humorístico, Dramático) y un deslizador (slider) para la Temperatura entre 0.0 y 1.0.
+   - Añade un botón principal para "Generar Texto".
+
+2. ENTORNO DE APRENDIZAJE POR REFUERZO (Gymnasium Env):
+   - Define una clase personalizada llamada 'EscrituraCreativaEnv' que herede de 'gym.Env'.
+   - Define un vocabulario simulado pequeño (por ejemplo, un diccionario estático de 500 o 1000 palabras comunes indexadas por ID numéricos) para mantener el prototipo ligero y funcional.
+   - El espacio de acciones ('action_space') debe ser discreto, equivalente al tamaño del vocabulario (elegir el ID de la siguiente palabra).
+   - El espacio de estados ('observation_space') debe ser una secuencia fija de IDs de palabras (un Box o MultiDiscrete que represente la ventana de contexto actual, por ejemplo, las últimas 10 palabras).
+   - Implementa los métodos obligatorios: 'reset()' para limpiar el contexto y 'step(action)' que reciba la palabra elegida por la política, la añada al texto actual y maneje la finalización del texto (cuando llegue a un token de parada o longitud máxima).
+
+3. MOTOR DE GENERACIÓN Y AGENTE DE RL (PyTorch + Stable-Baselines3):
+   - Configura una función para inicializar un modelo PPO de Stable-Baselines3 utilizando una política multicapa básica ('MlpPolicy') vinculada a nuestro entorno personalizado 'EscrituraCreativaEnv'.
+   - Implementa una función de generación de texto que tome las probabilidades de salida (logits) de la red neuronal de PyTorch del agente PPO, les aplique la división por la 'Temperatura' seleccionada en la UI para ajustar la aleatoriedad (muestreo probabilístico), y devuelva las palabras decodificadas de forma fluida.
+
+4. INTERFAZ DE FEEDBACK Y LOGS DE ALINEACIÓN (JSON):
+   - Una vez generado el texto en la pantalla principal de Streamlit, despliega dos botones: "👍 Coherente / Me gusta" y "👎 Incoherente / No me gusta".
+   - Si el usuario presiona "Me gusta", asigna una recompensa numérica de +1.0; si presiona "No me gusta", asigna -1.0.
+   - Crea una función 'guardar_log_recompensa()' que tome la consigna, los parámetros, el texto generado y la recompensa del usuario, y los guarde (haciendo un append) en un archivo local estructurado llamado 'logs_alineacion.json'.
+   - Deja preparado un bloque de código comentado que invoque a 'model.learn()' utilizando los datos de este JSON para demostrar conceptualmente cómo el agente se reentrena de forma interactiva con el feedback humano.
+
+Asegúrate de que el código sea limpio, esté modularizado mediante funciones bien documentadas en español, maneje correctamente el estado de sesión de Streamlit ('st.session_state') para que no se borren los datos al hacer clic en los botones de feedback, y esté listo para ejecutarse con el comando 'streamlit run app.py'.
+
