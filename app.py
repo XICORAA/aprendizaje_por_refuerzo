@@ -1,10 +1,43 @@
-import streamlit as st
+import json
 import os
+import streamlit as st
 
-from core import GeneradorBigrama
 from rl import PPOServer
 from utils import guardar_log_recompensa
 from config import CONFIG
+from utils.traducciones import tr
+
+
+LOGS_FILE = "logs/logs_alineacion.json"
+LOGS_FILE_VIEJO = "logs/logs_alineacion.jsonl"
+
+
+def _migrar_logs_viejo():
+    if os.path.exists(LOGS_FILE_VIEJO) and not os.path.exists(LOGS_FILE):
+        logs = []
+        with open(LOGS_FILE_VIEJO, "r", encoding="utf-8") as f:
+            for line in f:
+                if line.strip():
+                    logs.append(json.loads(line))
+        with open(LOGS_FILE, "w", encoding="utf-8") as f:
+            json.dump(logs, f, ensure_ascii=False, indent=2)
+        os.remove(LOGS_FILE_VIEJO)
+
+
+def _leer_logs():
+    if not os.path.exists(LOGS_FILE):
+        return []
+    with open(LOGS_FILE, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def reentrenar_modelo(recompensa):
+    generador_rl = st.session_state.get("generador_rl")
+    if generador_rl is None:
+        return
+    trajectory = generador_rl.last_trajectory
+    if trajectory and trajectory["actions"]:
+        generador_rl.entrenar(trajectory, recompensa)
 
 
 st.set_page_config(page_title="Escritura Creativa con RL")
@@ -19,72 +52,79 @@ if "tono" not in st.session_state:
     st.session_state.tono = "Misterioso"
 if "temperatura" not in st.session_state:
     st.session_state.temperatura = CONFIG["temperature_default"]
-if "modo_rl" not in st.session_state:
-    st.session_state.modo_rl = False
+if "idioma" not in st.session_state:
+    st.session_state.idioma = "es"
+if "generador_rl" not in st.session_state:
+    st.session_state.generador_rl = PPOServer()
+    st.session_state.generador_rl.inicializar()
 
-st.title("Asistente de Escritura Creativa con RL")
-st.markdown("---")
+_migrar_logs_viejo()
+
+idioma = st.session_state.idioma
+
+st.title(tr("titulo", idioma))
 
 with st.sidebar:
-    st.header("Configuracion")
+    st.header(tr("config", idioma))
 
-    st.session_state.modo_rl = st.toggle(
-        "Usar RL (PPO)",
-        value=st.session_state.modo_rl,
-        help="Activa el modelo PPO entrenado. Si está desactivado, usa bigrama simple."
+    nuevo_idioma = st.selectbox(
+        tr("idioma", idioma),
+        options=["es", "en"],
+        index=0 if idioma == "es" else 1,
     )
-
-    st.caption("Modo: " + ("RL" if st.session_state.modo_rl else "Bigrama"))
+    if nuevo_idioma != idioma:
+        st.session_state.idioma = nuevo_idioma
+        generos_nuevos = tr("generos", nuevo_idioma)
+        tonos_nuevos = tr("tonos", nuevo_idioma)
+        st.session_state.genero = generos_nuevos[0]
+        st.session_state.tono = tonos_nuevos[0]
+        st.rerun()
 
     consigna = st.text_area(
-        "Consigna",
+        tr("consigna", idioma),
         value=st.session_state.consigna,
         height=100,
-        placeholder="Ej: Escribe una historia sobre un detective..."
+        placeholder=tr("placeholder_consigna", idioma),
     )
 
+    generos_opts = tr("generos", idioma)
+    tonos_opts = tr("tonos", idioma)
+
     genero = st.selectbox(
-        "Género",
-        options=CONFIG["generos"],
-        index=CONFIG["generos"].index(st.session_state.genero)
+        tr("genero", idioma),
+        options=generos_opts,
+        index=generos_opts.index(st.session_state.genero) if st.session_state.genero in generos_opts else 0,
     )
 
     tono = st.selectbox(
-        "Tono",
-        options=CONFIG["tonos"],
-        index=CONFIG["tonos"].index(st.session_state.tono)
+        tr("tono", idioma),
+        options=tonos_opts,
+        index=tonos_opts.index(st.session_state.tono) if st.session_state.tono in tonos_opts else 0,
     )
 
     temperatura = st.slider(
-        "Temperatura",
+        tr("temperatura", idioma),
         min_value=0.0,
         max_value=1.0,
         value=st.session_state.temperatura,
         step=0.1,
-        help="0.0 = más determinista, 1.0 = más creativo"
     )
 
-    st.markdown("---")
-    st.caption("La temperatura controla la aleatoriedad en la generacion de texto.")
+    st.caption(tr("caption_ppo", idioma))
 
 col1, col2 = st.columns([3, 1])
 
 with col1:
-    if st.button("Generar Texto", type="primary", use_container_width=True):
-        if st.session_state.modo_rl:
-            generador_rl = PPOServer()
-            texto = generador_rl.generar_con_temperatura(
-                num_palabras=CONFIG["max_words"],
-                temperatura=temperatura
-            )
-        else:
-            generador_bg = GeneradorBigrama()
-            texto = generador_bg.generar(
-                num_palabras=CONFIG["max_words"],
-                temperatura=temperatura,
-                genero=genero,
-                tono=tono
-            )
+    if st.button(tr("generar", idioma), type="primary", use_container_width=True):
+        generador_rl = st.session_state.generador_rl
+        texto = generador_rl.generar_con_temperatura(
+            num_palabras=CONFIG["max_words"],
+            temperatura=temperatura,
+            consigna=consigna,
+            genero=genero,
+            tono=tono,
+            idioma=idioma,
+        )
 
         st.session_state.texto_generado = texto
         st.session_state.consigna = consigna
@@ -95,62 +135,51 @@ with col1:
         st.rerun()
 
 with col2:
-    if st.button("Limpiar", use_container_width=True):
+    if st.button(tr("limpiar", idioma), use_container_width=True):
         st.session_state.texto_generado = None
         st.rerun()
 
 if st.session_state.texto_generado:
-    st.markdown("### Texto Generado")
+    st.markdown(f"### {tr('texto_generado', idioma)}")
     st.info(st.session_state.texto_generado)
 
-    modo_actual = "RL" if st.session_state.modo_rl else "Bigrama"
-    st.caption(f"Generado con: {modo_actual}")
-
-    st.markdown("### Feedback")
+    st.markdown(f"### {tr('feedback', idioma)}")
 
     col_pos, col_neg = st.columns(2)
 
     with col_pos:
-        if st.button("Coherente / Me gusta", use_container_width=True):
+        if st.button(tr("me_gusta", idioma), use_container_width=True):
             guardar_log_recompensa(
                 st.session_state.consigna,
                 st.session_state.genero,
                 st.session_state.tono,
                 st.session_state.temperatura,
                 st.session_state.texto_generado,
-                1.0
+                1.0,
             )
-            st.success("¡Gracias! Feedback positivo guardado.")
+            reentrenar_modelo(1.0)
+            st.success(tr("gracias_feedback", idioma))
             st.balloons()
 
     with col_neg:
-        if st.button("Incoherente / No me gusta", use_container_width=True):
+        if st.button(tr("no_gusta", idioma), use_container_width=True):
             guardar_log_recompensa(
                 st.session_state.consigna,
                 st.session_state.genero,
                 st.session_state.tono,
                 st.session_state.temperatura,
                 st.session_state.texto_generado,
-                -1.0
+                -1.0,
             )
-            st.warning("Feedback negativo guardado. El modelo aprenderá de esto.")
+            reentrenar_modelo(-1.0)
+            st.warning(tr("feedback_negativo", idioma))
 
     st.markdown("---")
 
-    with st.expander("Ver logs de alineacion"):
-        if os.path.exists("logs_alineacion.json"):
-            with open("logs_alineacion.json", "r", encoding="utf-8") as f:
-                logs = f.read()
-            if logs.strip():
-                import json
-                logs = json.loads(logs)
-                st.write(f"Total de entradas: {len(logs)}")
-                st.json(logs[-5:] if len(logs) > 5 else logs)
-            else:
-                st.info("No hay logs aún.")
+    with st.expander(tr("ver_logs", idioma)):
+        logs = _leer_logs()
+        if logs:
+            st.write(f"{tr('total_entradas', idioma)}: {len(logs)}")
+            st.json(logs[-5:] if len(logs) > 5 else logs)
         else:
-            st.info("No hay logs aún. Genera texto y da feedback.")
-
-
-def reentrenar_modelo():
-    pass
+            st.info(tr("sin_logs", idioma))

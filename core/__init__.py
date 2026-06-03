@@ -1,4 +1,4 @@
 from .vocabulary import Vocabulario
-from .generator import GeneradorBigrama
+from .logica import LogicaPrimerOrden
 
-__all__ = ["Vocabulario", "GeneradorBigrama"]
+__all__ = ["Vocabulario", "LogicaPrimerOrden"]

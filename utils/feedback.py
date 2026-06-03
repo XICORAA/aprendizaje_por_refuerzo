@@ -2,27 +2,28 @@ import json
 import os
 
 
+LOGS_FILE = "logs/logs_alineacion.json"
+
+
 def guardar_log_recompensa(consigna, genero, tono, temperatura, texto, recompensa):
-    log_entry = {
+    logs = []
+    if os.path.exists(LOGS_FILE):
+        with open(LOGS_FILE, "r", encoding="utf-8") as f:
+            try:
+                logs = json.load(f)
+            except json.JSONDecodeError:
+                logs = []
+
+    logs.append({
         "consigna": consigna,
         "genero": genero,
         "tono": tono,
         "temperatura": temperatura,
         "texto": texto,
-        "recompensa": recompensa
-    }
+        "recompensa": recompensa,
+    })
 
-    filename = "logs_alineacion.json"
-
-    if os.path.exists(filename):
-        with open(filename, "r", encoding="utf-8") as f:
-            logs = json.load(f)
-    else:
-        logs = []
-
-    logs.append(log_entry)
-
-    with open(filename, "w", encoding="utf-8") as f:
+    with open(LOGS_FILE, "w", encoding="utf-8") as f:
         json.dump(logs, f, ensure_ascii=False, indent=2)
 
     return True

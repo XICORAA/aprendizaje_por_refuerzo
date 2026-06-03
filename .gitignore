@@ -1,1 +1,5 @@
 ./com
+.venv/
+__pycache__/
+models/
+logs/
