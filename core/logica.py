@@ -12,9 +12,6 @@ class LogicaPrimerOrden:
             k: set(v) for k, v in palabras_por_tono.items()
         }
 
-    # ------------------------------------------------------------------
-    # Conectivas fuzzy Łukasiewicz
-    # ------------------------------------------------------------------
     @staticmethod
     def negacion(a):
         return 1.0 - a
@@ -31,9 +28,6 @@ class LogicaPrimerOrden:
     def implicacion(a, b):
         return min(1.0, 1.0 - a + b)
 
-    # ------------------------------------------------------------------
-    # Predicados semánticos (género / tono / relevancia)
-    # ------------------------------------------------------------------
     def es_del_genero(self, token, genero):
         palabra = self.vocab.ind2word.get(token, "")
         return 1.0 if palabra in self._palabras_por_genero.get(genero, set()) else 0.0
@@ -45,9 +39,6 @@ class LogicaPrimerOrden:
     def es_relevante(self, token, prompt_tokens):
         return 1.0 if token in prompt_tokens else 0.0
 
-    # ------------------------------------------------------------------
-    # Predicados sintácticos (categoría gramatical)
-    # ------------------------------------------------------------------
     def es_categoria(self, token, categoria):
         return 1.0 if self.vocab.categoria(token) == categoria else 0.0
 
@@ -75,6 +66,15 @@ class LogicaPrimerOrden:
     def es_adverbio(self, token):
         return self.es_categoria(token, "adverbio")
 
+    def es_conjugado(self, token):
+        palabra = self.vocab.ind2word.get(token, "")
+        cat = self.vocab.categoria(token)
+        if cat != "verbo":
+            return False
+        if not palabra or len(palabra) <= 2:
+            return True
+        return not palabra.endswith(('ar', 'er', 'ir'))
+
     # ------------------------------------------------------------------
     # Evaluación semántica (por paso)
     #
@@ -89,6 +89,9 @@ class LogicaPrimerOrden:
             cat = self.vocab.categoria(token)
             if cat in ("determinante", "preposicion", "conjuncion", "pronombre"):
                 score = 0.2
+        if self.es_conjugado(token):
+            score += 0.4
+            score = min(score, 1.0)
         return score
 
     def evaluar_trayectoria_semantica(self, acciones, genero, tono, prompt_tokens):

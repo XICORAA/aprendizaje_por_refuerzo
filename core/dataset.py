@@ -2,6 +2,12 @@ import random
 import numpy as np
 from config import CONFIG
 
+_CAT_NAMES = [
+    "determinante", "sustantivo", "verbo", "preposicion",
+    "conjuncion", "pronombre", "adjetivo", "adverbio",
+]
+_CAT_TO_ID = {n: i for i, n in enumerate(_CAT_NAMES)}
+
 
 TEMPLATES = [
     ["DET", "SUST", "VERBO", "PREP", "DET", "SUST"],
@@ -145,11 +151,18 @@ class DatasetOraciones:
 
         prompt = [self.vocab.pad_token] * self.prompt_max
 
+        last_cat_id = len(_CAT_NAMES)
+        if pos > 0:
+            w = self.vocab.ind2word.get(tokens[pos - 1], '')
+            cat = self.vocab._categorias.get(w)
+            last_cat_id = _CAT_TO_ID.get(cat, len(_CAT_NAMES))
+
         return np.concatenate([
             genero_oh,
             tono_oh,
             np.array(prompt, dtype=np.int64),
             np.array(context, dtype=np.int64),
+            np.array([last_cat_id, pos], dtype=np.int64),
         ])
 
     def generar_lotes(self, batch_size=32):

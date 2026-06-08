@@ -6,6 +6,7 @@ from rl import PPOServer
 from utils import guardar_log_recompensa
 from config import CONFIG
 from utils.traducciones import tr
+from core.evaluator import evaluar_con_ia
 
 
 LOGS_FILE = "logs/logs_alineacion.json"
@@ -175,6 +176,18 @@ if st.session_state.texto_generado:
             st.warning(tr("feedback_negativo", idioma))
 
     st.markdown("---")
+
+    with st.expander("Evaluar con IA (copiar/pegar en ChatGPT o Claude)"):
+        prompt_ia = evaluar_con_ia(
+            st.session_state.texto_generado,
+            st.session_state.consigna,
+            st.session_state.genero,
+            st.session_state.tono,
+        )
+        st.code(prompt_ia, language="markdown")
+        if st.button("Copiar prompt al portapapeles", key="copiar_prompt"):
+            st.write(prompt_ia)
+            st.toast("¡Prompt listo para copiar!")
 
     with st.expander(tr("ver_logs", idioma)):
         logs = _leer_logs()

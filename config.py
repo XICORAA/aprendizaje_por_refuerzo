@@ -1,6 +1,6 @@
 CONFIG = {
-    "max_words": 30,
-    "context_size": 10,
+    "max_words": 15,
+    "context_size": 15,
     "temperature_default": 0.7,
     "prompt_max_tokens": 20,
     "lambda_semantica": 0.5,
@@ -34,8 +34,8 @@ CONFIG = {
         ],
         "Guion": [
             "entonces", "después", "cuando", "mientras", "escena",
-            "actor", "decir", "mirar", "sentir", "hablar",
-            "entrar", "salir", "voz", "silencio",
+            "actor", "dice", "mira", "siente", "habla",
+            "voz", "silencio",
         ],
     },
     "palabras_por_tono": {
@@ -45,13 +45,13 @@ CONFIG = {
             "sueño", "alma", "corazón", "voz",
         ],
         "Humorístico": [
-            "reír", "alegría", "feliz", "amigo", "jugar",
-            "cantar", "bailar", "soñar", "amor", "bueno",
+            "ríe", "alegría", "feliz", "amigo", "juega",
+            "canta", "baila", "sueña", "amor", "bueno",
             "hermoso", "fuerte", "grande",
         ],
         "Dramático": [
             "dolor", "amor", "destino", "corazón", "alma",
-            "vida", "muerte", "guerra", "llanto", "triste",
+            "vida", "muerte", "guerra", "llora", "triste",
             "lucha", "victoria", "derrota", "honor",
             "silencio", "lágrima", "miedo", "terror",
         ],
@@ -72,8 +72,8 @@ CONFIG = {
         ],
         "Script": [
             "then", "after", "when", "while", "scene",
-            "actor", "say", "look", "feel", "speak",
-            "enter", "leave", "voice", "silence",
+            "actor", "says", "looks", "feels", "speaks",
+            "voice", "silence",
         ],
     },
     "palabras_por_tono_en": {
@@ -83,8 +83,8 @@ CONFIG = {
             "dream", "soul", "heart", "voice",
         ],
         "Humorous": [
-            "laugh", "joy", "happy", "friend", "play",
-            "sing", "dance", "dream", "love", "good",
+            "laughs", "joy", "happy", "friend", "plays",
+            "sings", "dances", "dreams", "love", "good",
             "beautiful", "strong", "big",
         ],
         "Dramatic": [

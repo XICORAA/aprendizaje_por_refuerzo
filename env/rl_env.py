@@ -5,6 +5,12 @@ from core.vocabulary import Vocabulario
 from core.logica import LogicaPrimerOrden
 from config import CONFIG
 
+_CAT_NAMES = [
+    "determinante", "sustantivo", "verbo", "preposicion",
+    "conjuncion", "pronombre", "adjetivo", "adverbio",
+]
+_CAT_TO_ID = {n: i for i, n in enumerate(_CAT_NAMES)}
+
 
 class EscrituraCreativaEnv(gym.Env):
     metadata = {"render_modes": ["text"]}
@@ -26,7 +32,7 @@ class EscrituraCreativaEnv(gym.Env):
 
         self.action_space = spaces.Discrete(self.vocabulario.vocab_size)
 
-        self._obs_dim = 3 + 3 + self.prompt_max + self.context_size
+        self._obs_dim = 3 + 3 + self.prompt_max + self.context_size + 2
         self.observation_space = spaces.Box(
             low=0,
             high=self.vocabulario.vocab_size,
@@ -62,6 +68,7 @@ class EscrituraCreativaEnv(gym.Env):
             self.tono_onehot,
             np.array(self.prompt_tokens, dtype=np.int64),
             np.array(self.context, dtype=np.int64),
+            np.array([self.last_cat_id, self.position], dtype=np.int64),
         ])
 
     def _get_info(self):
@@ -105,6 +112,8 @@ class EscrituraCreativaEnv(gym.Env):
         self.prompt_tokens = self._consigna_to_tokens(consigna)
         self.context = [self.vocabulario.pad_token] * self.context_size
         self.generated_tokens = []
+        self.last_cat_id = len(_CAT_NAMES)
+        self.position = 0
         return self._get_obs(), self._get_info()
 
     def step(self, action):
@@ -123,6 +132,9 @@ class EscrituraCreativaEnv(gym.Env):
         else:
             self.generated_tokens.append(action)
             self.context = self.context[1:] + [action]
+            cat = self.vocabulario.categoria(action)
+            self.last_cat_id = _CAT_TO_ID.get(cat, len(_CAT_NAMES))
+            self.position = len(self.generated_tokens)
             if len(self.generated_tokens) >= self.max_length:
                 terminated = False
                 truncated = True

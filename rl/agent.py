@@ -6,6 +6,8 @@ from stable_baselines3.common.policies import ActorCriticPolicy
 from env.rl_env import EscrituraCreativaEnv
 from config import CONFIG
 from core.logica import LogicaPrimerOrden
+from core.posproceso import concordar_frase
+from core.bigram import BigramModel
 
 _SHORTHAND = {
     "es": {
@@ -64,6 +66,11 @@ class PPOServer:
         self.last_trajectory = {"observations": [], "actions": []}
         self._ps = 0
         self._sk = None
+        self._seg_cat = {}
+        self._entropy_coef = 0.3
+        self._global_word_history = []
+        self._bigram = BigramModel(self.vocabulario)
+        self._init_infinitives(idioma)
 
     def inicializar(self):
         if self.agent is not None:
@@ -83,6 +90,26 @@ class PPOServer:
                 verbose=0
             )
             self.cargar()
+
+    def _init_infinitives(self, idioma):
+        self._inf_tokens = set()
+        self._conjugated_verb_exists = False
+        self._noun_genders = {}
+        vocab = self.vocabulario
+        for i in range(vocab.vocab_size):
+            w = vocab.ind2word.get(i, '')
+            cat = vocab.categoria(i)
+            if cat == 'verbo' and len(w) > 2:
+                if w.endswith(('ar', 'er', 'ir')):
+                    self._inf_tokens.add(i)
+                else:
+                    self._conjugated_verb_exists = True
+        # Build gender lookup from posproceso data
+        from core.posproceso import _GENERO
+        for w, g in _GENERO.items():
+            idx = vocab.word2ind.get(w)
+            if idx is not None:
+                self._noun_genders[idx] = g
 
     def guardar(self):
         if self.agent is not None:
@@ -106,6 +133,7 @@ class PPOServer:
             palabras_gen,
             palabras_ton,
         )
+        self._init_infinitives(idioma)
 
     def _syntactic_bias(self, ultimo_token, idioma):
         shorthand = _SHORTHAND.get(idioma, _SHORTHAND["es"])
@@ -198,12 +226,33 @@ class PPOServer:
         prompt_tokens = set(self.env._consigna_to_tokens(consigna))
         usado = {}
         ultimo_token = None
+        gen_counts = {}
+        last_det_idx = -1
+        last_det_gender = None
         if self._sk is None:
             self._sk = _SLOTS[:]
-        j = self._ps % len(self._sk)
+        j = np.random.randint(len(self._sk))
+
+        DET_GENDER_MAP = {}
+        vocab = self.vocabulario
+        for i in range(vocab.vocab_size):
+            w = vocab.ind2word.get(i, '')
+            if w in ('el', 'un', 'los', 'este', 'ese', 'aquel'):
+                DET_GENDER_MAP[i] = 'm'
+            elif w in ('la', 'una', 'las', 'esta', 'esa', 'aquella'):
+                DET_GENDER_MAP[i] = 'f'
+
+        FUNC = {"determinante", "preposicion", "conjuncion", "pronombre"}
+        CONTENT = {"sustantivo", "verbo", "adjetivo", "adverbio"}
+
+        BIGRAM_ALPHA = 0.35
 
         for paso in range(num_palabras):
             probs = self._get_action_probs(obs, temperatura)
+
+            # Blend with bigram probabilities
+            bigram_p = self._bigram.probs(ultimo_token)
+            probs = (1.0 - BIGRAM_ALPHA) * probs + BIGRAM_ALPHA * bigram_p
 
             for i in range(len(probs)):
                 if i in (self.vocabulario.eos_token, self.vocabulario.pad_token):
@@ -212,12 +261,11 @@ class PPOServer:
                     s = self.logica.evaluar_paso(
                         token=i, genero=genero, tono=tono, prompt_tokens=prompt_tokens
                     )
-                    probs[i] *= (1.0 + 1.5 * s)
+                    probs[i] *= (1.0 + 0.8 * s)
 
             syn_bias = self._syntactic_bias(ultimo_token, idioma or self.idioma)
             probs *= syn_bias
 
-            FUNC = {"determinante", "preposicion", "conjuncion", "pronombre"}
             pk = self._sk[j]
             pc = _SLOTMAP.get(pk[paso]) if paso < len(pk) else None
 
@@ -225,7 +273,7 @@ class PPOServer:
                 if i in usado:
                     cat = self.vocabulario.categoria(i)
                     if cat in FUNC:
-                        if usado[i] >= 2:
+                        if usado[i] >= 1:
                             probs[i] = 0.0
                     else:
                         probs[i] = 0.0
@@ -233,10 +281,69 @@ class PPOServer:
                     if self.vocabulario.categoria(i) != pc:
                         probs[i] = 0.0
 
+            # Global frequency penalty: reduce probability of recently over-used words
+            if self._global_word_history:
+                recent_counts = {}
+                for a in self._global_word_history[-500:]:
+                    recent_counts[a] = recent_counts.get(a, 0) + 1
+                for i in range(len(probs)):
+                    cnt = recent_counts.get(i, 0)
+                    if cnt > 2:
+                        probs[i] /= (1.0 + 0.5 * (cnt - 2))
+
+            # Phase 2: Penalizar infinitivos si el slot es VERBO
+            if pc == 'verbo' and self._conjugated_verb_exists:
+                for i in self._inf_tokens:
+                    if i < len(probs):
+                        probs[i] *= 0.15
+
+            # Phase 3: Decaimiento por repetición para palabras de contenido
+            for i, cnt in gen_counts.items():
+                if i < len(probs):
+                    cat = self.vocabulario.categoria(i)
+                    if cat in CONTENT:
+                        probs[i] /= (1.0 + 0.8 * cnt)
+
+            # Phase 3: Seg_cat diversity (last 5 per category)
+            if pc:
+                for idx in self._seg_cat.get(pc, []):
+                    if idx in range(len(probs)):
+                        probs[idx] = 0.0
+
+            # Phase 4: DET-N gender agreement bias
+            if pc == 'sustantivo' and last_det_gender is not None:
+                for i in range(len(probs)):
+                    g = self._noun_genders.get(i)
+                    if g and g != last_det_gender:
+                        probs[i] *= 0.3
+            if pc == 'determinante' and last_det_idx >= 0:
+                for i in range(len(probs)):
+                    g = DET_GENDER_MAP.get(i)
+                    noun_g = self._noun_genders.get(last_det_idx)
+                    if g and noun_g and g != noun_g:
+                        probs[i] *= 0.3
+
+            if probs.sum() == 0.0:
+                probs[:] = 1.0
+                if pc:
+                    for i in range(len(probs)):
+                        if self.vocabulario.categoria(i) != pc:
+                            probs[i] = 0.0
+                probs[self.vocabulario.eos_token] = 0.0
+                probs[self.vocabulario.pad_token] = 0.0
             probs /= probs.sum()
 
             if temperatura > 0:
                 probs = np.power(probs, 1.0 / temperatura)
+                if probs.sum() == 0.0:
+                    probs[:] = 1.0
+                    probs[self.vocabulario.eos_token] = 0.0
+                    probs[self.vocabulario.pad_token] = 0.0
+                else:
+                    # Top‑k: zero out everything below the 25th highest prob
+                    k = min(25, len(probs))
+                    threshold = -np.sort(-probs)[k - 1] if k > 0 else 0.0
+                    probs[probs < threshold] = 0.0
                 probs /= probs.sum()
                 action = np.random.choice(len(probs), p=probs)
             else:
@@ -246,10 +353,15 @@ class PPOServer:
                 break
 
             usado[action] = 1 + usado.get(action, 0)
+            gen_counts[action] = gen_counts.get(action, 0) + 1
             ultimo_token = action
             palabra = self.vocabulario.ind2word[action]
             texto_generado.append(palabra)
             trajectory["actions"].append(action)
+            act_cat = self.vocabulario.categoria(action)
+            if act_cat == 'determinante':
+                last_det_idx = action
+                last_det_gender = DET_GENDER_MAP.get(action)
 
             obs, reward, terminated, truncated, info = self.env.step(action)
             trajectory["rewards"].append(reward)
@@ -260,7 +372,19 @@ class PPOServer:
 
         self.last_trajectory = trajectory
         self._ps += 1
-        return " ".join(texto_generado)
+        for act in trajectory["actions"]:
+            self._global_word_history.append(act)
+            if len(self._global_word_history) > 2000:
+                self._global_word_history = self._global_word_history[-1000:]
+            cat = self.vocabulario.categoria(act)
+            if cat not in self._seg_cat:
+                self._seg_cat[cat] = []
+            self._seg_cat[cat].append(act)
+            if len(self._seg_cat[cat]) > 5:
+                self._seg_cat[cat].pop(0)
+        texto = " ".join(texto_generado)
+        texto = concordar_frase(texto, self.vocabulario)
+        return texto
 
     def _get_action_probs(self, obs, temperatura, forbid_tokens=None):
         if self.agent is None:
@@ -307,14 +431,24 @@ class PPOServer:
                     if seen > 2:
                         per_word[i] = 0.0
 
-        per_word_t = torch.from_numpy(per_word)
+        adv = per_word.copy()
+        adv = (adv - adv.mean()) / (adv.std() + 1e-8)
+        adv_t = torch.from_numpy(adv)
+
+        gamma = CONFIG["ppo_config"]["gamma"]
+        returns = np.zeros(n, dtype=np.float32)
+        G = 0.0
+        for i in range(n - 1, -1, -1):
+            G = per_word[i] + gamma * G
+            returns[i] = G
+        returns_t = torch.from_numpy(returns)
 
         genero = trajectory.get("genero", "Cuento")
         tono = trajectory.get("tono", "Misterioso")
         consigna = trajectory.get("consigna", "")
         prompt_tokens = set(self.env._consigna_to_tokens(consigna))
 
-        for _ in range(20):
+        for _ in range(3):
             features = self.agent.policy.extract_features(obs_tensor)
             latent_pi, latent_vf = self.agent.policy.mlp_extractor(features)
             logits = self.agent.policy.action_net(latent_pi)
@@ -323,11 +457,10 @@ class PPOServer:
             dist = torch.distributions.Categorical(logits=logits)
             log_probs = dist.log_prob(action_tensor)
 
-            loss_ppo = -(log_probs * per_word_t).mean()
+            loss_ppo = -(log_probs * adv_t).mean()
 
-            value_target = torch.full_like(values.squeeze(), reward_escalar)
             value_loss = torch.nn.functional.mse_loss(
-                values.squeeze(), value_target
+                values.squeeze(), returns_t
             )
 
             loss_logica = self.logica.loss(
@@ -337,11 +470,13 @@ class PPOServer:
             )
 
             entropy = dist.entropy().mean()
-            loss = loss_ppo + 0.5 * value_loss + loss_logica - 0.3 * entropy
+            loss = loss_ppo + 0.5 * value_loss + loss_logica - self._entropy_coef * entropy
 
             self.agent.policy.optimizer.zero_grad()
             loss.backward()
             self.agent.policy.optimizer.step()
 
+        self._entropy_coef *= 0.995
+        self._entropy_coef = max(self._entropy_coef, 0.01)
         trajectory["rewards"] = []
         self.guardar()
